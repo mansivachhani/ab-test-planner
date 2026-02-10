@@ -8,6 +8,10 @@ A micro project for product owners and growth teams to estimate:
 
 Built with Next.js (App Router) + Tailwind CSS and ready for free Vercel deployment.
 
+## Live Demo
+
+[https://ab-test-planner.vercel.app](https://ab-test-planner.vercel.app)
+
 ## Features
 
 - Two-proportion sample size calculator (two-sided z-test approximation)
