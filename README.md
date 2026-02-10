@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# A/B Test Planner
 
-## Getting Started
+A micro project for product owners and growth teams to estimate:
 
-First, run the development server:
+- Sample size required per variant
+- Total users needed for the experiment
+- Estimated test duration in days based on traffic split and daily users
+
+Built with Next.js (App Router) + Tailwind CSS and ready for free Vercel deployment.
+
+## Features
+
+- Two-proportion sample size calculator (two-sided z-test approximation)
+- Duration estimator using traffic allocation and daily eligible users
+- Input validation with clear inline error messages
+- Responsive UI for desktop and mobile
+
+## Inputs
+
+- Baseline conversion rate (%)
+- Minimum detectable uplift (%)
+- Significance level / alpha (%)
+- Statistical power (%)
+- Daily eligible users
+- Traffic allocated to variant B (%)
+
+## Validation Rules
+
+- Baseline conversion rate: `0 < value < 100`
+- Minimum detectable uplift: `0 < value <= 500`
+- Significance: `0 < value < 50`
+- Power: `50 < value < 99.9`
+- Daily eligible users: integer `>= 1`
+- Variant B traffic: `0 < value < 100`
+- Calculated variant conversion rate must stay below `100%`
+
+## How to use
+
+1. Fill in your experiment assumptions.
+2. Click **Calculate Sample Size & Duration**.
+3. Review:
+   - required sample size per variant
+   - total sample size
+   - estimated duration
+   - expected variant conversion rate
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy for free on Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Option 1: Vercel dashboard (recommended)
 
-## Learn More
+1. Push this project to GitHub.
+2. Go to [Vercel](https://vercel.com/) and sign in.
+3. Click **Add New Project**.
+4. Import your GitHub repository.
+5. Keep default settings for Next.js.
+6. Click **Deploy**.
 
-To learn more about Next.js, take a look at the following resources:
+### Option 2: Vercel CLI
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm i -g vercel
+vercel
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Follow the prompts, then deploy production:
 
-## Deploy on Vercel
+```bash
+vercel --prod
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tech Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js 16
+- React 19
+- Tailwind CSS 4
+- TypeScript
+
+## Notes
+
+This calculator gives planning estimates. For business-critical tests, always pair results with domain-specific constraints (seasonality, user quality, risk tolerance, and experiment guardrails).
