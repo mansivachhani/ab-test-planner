@@ -18,6 +18,15 @@ type Result = {
   expectedVariantRate: number;
 };
 
+type ParsedValues = {
+  baselineRate: number;
+  uplift: number;
+  significance: number;
+  power: number;
+  dailyVisitors: number;
+  variantTraffic: number;
+};
+
 const DEFAULT_VALUES: FormValues = {
   baselineRate: "8",
   minDetectableUplift: "10",
@@ -92,6 +101,40 @@ function formatRate(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function calculateResult(parsed: ParsedValues): Result {
+  const p1 = parsed.baselineRate;
+  const p2 = p1 * (1 + parsed.uplift);
+  const alpha = parsed.significance;
+  const zAlpha = inverseNormalCdf(1 - alpha / 2);
+  const zBeta = inverseNormalCdf(parsed.power);
+
+  const pooled = (p1 + p2) / 2;
+  const diff = Math.abs(p2 - p1);
+
+  const numerator =
+    zAlpha * Math.sqrt(2 * pooled * (1 - pooled)) +
+    zBeta * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2));
+
+  const sampleSizePerGroup = Math.ceil((numerator * numerator) / (diff * diff));
+
+  const controlShare = 1 - parsed.variantTraffic;
+  const variantShare = parsed.variantTraffic;
+
+  const controlDaily = parsed.dailyVisitors * controlShare;
+  const variantDaily = parsed.dailyVisitors * variantShare;
+
+  const durationDays = Math.ceil(
+    Math.max(sampleSizePerGroup / controlDaily, sampleSizePerGroup / variantDaily),
+  );
+
+  return {
+    sampleSizePerGroup,
+    totalSampleSize: sampleSizePerGroup * 2,
+    durationDays,
+    expectedVariantRate: p2,
+  };
+}
+
 export default function Home() {
   const [values, setValues] = useState<FormValues>(DEFAULT_VALUES);
   const [errors, setErrors] = useState<Record<keyof FormValues, string>>({
@@ -103,7 +146,16 @@ export default function Home() {
     variantTraffic: "",
   });
   const [globalError, setGlobalError] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<Result | null>(() =>
+    calculateResult({
+      baselineRate: Number(DEFAULT_VALUES.baselineRate) / 100,
+      uplift: Number(DEFAULT_VALUES.minDetectableUplift) / 100,
+      significance: Number(DEFAULT_VALUES.significance) / 100,
+      power: Number(DEFAULT_VALUES.power) / 100,
+      dailyVisitors: Number(DEFAULT_VALUES.dailyVisitors),
+      variantTraffic: Number(DEFAULT_VALUES.variantTraffic) / 100,
+    }),
+  );
 
   const hasErrors = useMemo(() => {
     return Object.values(errors).some(Boolean) || Boolean(globalError);
@@ -181,37 +233,7 @@ export default function Home() {
       return;
     }
 
-    const p1 = parsed.baselineRate;
-    const p2 = p1 * (1 + parsed.uplift);
-    const alpha = parsed.significance;
-    const zAlpha = inverseNormalCdf(1 - alpha / 2);
-    const zBeta = inverseNormalCdf(parsed.power);
-
-    const pooled = (p1 + p2) / 2;
-    const diff = Math.abs(p2 - p1);
-
-    const numerator =
-      zAlpha * Math.sqrt(2 * pooled * (1 - pooled)) +
-      zBeta * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2));
-
-    const sampleSizePerGroup = Math.ceil((numerator * numerator) / (diff * diff));
-
-    const controlShare = 1 - parsed.variantTraffic;
-    const variantShare = parsed.variantTraffic;
-
-    const controlDaily = parsed.dailyVisitors * controlShare;
-    const variantDaily = parsed.dailyVisitors * variantShare;
-
-    const durationDays = Math.ceil(
-      Math.max(sampleSizePerGroup / controlDaily, sampleSizePerGroup / variantDaily),
-    );
-
-    setResult({
-      sampleSizePerGroup,
-      totalSampleSize: sampleSizePerGroup * 2,
-      durationDays,
-      expectedVariantRate: p2,
-    });
+    setResult(calculateResult(parsed));
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -234,8 +256,8 @@ export default function Home() {
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">A/B Test Planner</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Plan statistically sound experiments for product changes in iGaming funnels. Adjust assumptions,
-            validate inputs, and get sample size plus test duration estimates instantly.
+            Plan your A/B test for iGaming product changes. Enter your expected numbers and get how many users
+            you need and how long the test may run.
           </p>
         </header>
 
@@ -243,7 +265,8 @@ export default function Home() {
           <form className="space-y-5" onSubmit={handleSubmit} noValidate>
             <InputField
               id="baselineRate"
-              label="Baseline conversion rate (%)"
+              label="Current conversion rate (%)"
+              tooltip="How many users convert today before any change (your A version)."
               value={values.baselineRate}
               error={errors.baselineRate}
               onChange={(value) => updateValue("baselineRate", value)}
@@ -251,7 +274,8 @@ export default function Home() {
 
             <InputField
               id="minDetectableUplift"
-              label="Minimum detectable uplift (%)"
+              label="Expected improvement (%)"
+              tooltip="Smallest lift you want to be able to catch in B. Smaller lifts need more users."
               value={values.minDetectableUplift}
               error={errors.minDetectableUplift}
               onChange={(value) => updateValue("minDetectableUplift", value)}
@@ -259,7 +283,8 @@ export default function Home() {
 
             <InputField
               id="significance"
-              label="Significance level / alpha (%)"
+              label="Confidence strictness (%)"
+              tooltip="How strict you want to be before calling a winner. More strict means more users."
               value={values.significance}
               error={errors.significance}
               onChange={(value) => updateValue("significance", value)}
@@ -267,7 +292,8 @@ export default function Home() {
 
             <InputField
               id="power"
-              label="Statistical power (%)"
+              label="Chance to detect real lift (%)"
+              tooltip="How likely the test should catch a true improvement. Higher chance means more users."
               value={values.power}
               error={errors.power}
               onChange={(value) => updateValue("power", value)}
@@ -275,7 +301,8 @@ export default function Home() {
 
             <InputField
               id="dailyVisitors"
-              label="Daily eligible users"
+              label="Users per day"
+              tooltip="Average number of users per day who can join this test."
               value={values.dailyVisitors}
               error={errors.dailyVisitors}
               onChange={(value) => updateValue("dailyVisitors", value)}
@@ -283,7 +310,8 @@ export default function Home() {
 
             <InputField
               id="variantTraffic"
-              label="Traffic allocated to variant B (%)"
+              label="Traffic to version B (%)"
+              tooltip="How much traffic goes to B. A very uneven split can make the test take longer."
               value={values.variantTraffic}
               error={errors.variantTraffic}
               onChange={(value) => updateValue("variantTraffic", value)}
@@ -302,7 +330,10 @@ export default function Home() {
           </form>
 
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-            <h2 className="text-xl font-semibold">Results</h2>
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              Results
+              <TooltipHelp text="We estimate required users for A and B, then convert that into days using your daily traffic and split." />
+            </h2>
             {!result ? (
               <p className="mt-4 text-sm text-slate-600">
                 Enter your assumptions and calculate to see required sample size and estimated run time.
@@ -312,15 +343,25 @@ export default function Home() {
                 <ResultCard
                   label="Sample size per variant"
                   value={`${formatNumber(result.sampleSizePerGroup)} users`}
+                  tooltip="Users needed in A and in B before you can trust the result."
                 />
-                <ResultCard label="Total sample size" value={`${formatNumber(result.totalSampleSize)} users`} />
-                <ResultCard label="Estimated duration" value={`${result.durationDays} day(s)`} />
+                <ResultCard
+                  label="Total sample size"
+                  value={`${formatNumber(result.totalSampleSize)} users`}
+                  tooltip="Users needed in total across both versions."
+                />
+                <ResultCard
+                  label="Estimated duration"
+                  value={`${result.durationDays} day(s)`}
+                  tooltip="Estimated days to reach the needed users based on your daily traffic and split."
+                />
                 <ResultCard
                   label="Expected conversion rate (variant B)"
                   value={formatRate(result.expectedVariantRate)}
+                  tooltip="Estimated B conversion rate based on your current rate and expected lift."
                 />
                 <p className="pt-3 text-xs text-slate-500">
-                  Formula uses a two-sided z-test approximation for two independent proportions.
+                  Estimate only. Use it as planning guidance before running the live test.
                 </p>
               </div>
             )}
@@ -334,17 +375,21 @@ export default function Home() {
 type InputFieldProps = {
   id: string;
   label: string;
+  tooltip: string;
   value: string;
   error?: string;
   onChange: (value: string) => void;
 };
 
-function InputField({ id, label, value, error, onChange }: InputFieldProps) {
+function InputField({ id, label, tooltip, value, error, onChange }: InputFieldProps) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-700">
-        {label}
-      </label>
+      <div className="mb-1 flex items-center gap-2">
+        <label htmlFor={id} className="block text-sm font-medium text-slate-700">
+          {label}
+        </label>
+        <TooltipHelp text={tooltip} />
+      </div>
       <input
         id={id}
         value={value}
@@ -362,13 +407,38 @@ function InputField({ id, label, value, error, onChange }: InputFieldProps) {
 type ResultCardProps = {
   label: string;
   value: string;
+  tooltip?: string;
 };
 
-function ResultCard({ label, value }: ResultCardProps) {
+function ResultCard({ label, value, tooltip }: ResultCardProps) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+        {tooltip ? <TooltipHelp text={tooltip} /> : null}
+      </div>
       <p className="mt-1 text-lg font-semibold text-slate-900">{value}</p>
     </div>
+  );
+}
+
+type TooltipHelpProps = {
+  text: string;
+};
+
+function TooltipHelp({ text }: TooltipHelpProps) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-label="More info"
+        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 text-[10px] font-bold text-slate-600"
+      >
+        ?
+      </button>
+      <span className="pointer-events-none absolute left-1/2 top-6 z-20 w-64 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-within:opacity-100">
+        {text}
+      </span>
+    </span>
   );
 }
