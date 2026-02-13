@@ -343,22 +343,22 @@ export default function Home() {
                 <ResultCard
                   label="Sample size per variant"
                   value={`${formatNumber(result.sampleSizePerGroup)} users`}
-                  tooltip="Users needed in A and in B before you can trust the result."
+                  tooltip="Calculated with a two-group conversion formula using your current rate, expected improvement, confidence strictness, and detection chance. Output is users needed in each group."
                 />
                 <ResultCard
                   label="Total sample size"
                   value={`${formatNumber(result.totalSampleSize)} users`}
-                  tooltip="Users needed in total across both versions."
+                  tooltip="Total sample = sample per variant x 2 (A + B)."
                 />
                 <ResultCard
                   label="Estimated duration"
                   value={`${result.durationDays} day(s)`}
-                  tooltip="Estimated days to reach the needed users based on your daily traffic and split."
+                  tooltip="Control daily users = users per day x (1 - B traffic). B daily users = users per day x B traffic. Days = larger of (sample per variant / control daily) and (sample per variant / B daily), rounded up."
                 />
                 <ResultCard
                   label="Expected conversion rate (variant B)"
                   value={formatRate(result.expectedVariantRate)}
-                  tooltip="Estimated B conversion rate based on your current rate and expected lift."
+                  tooltip="Expected B rate = current conversion rate x (1 + expected improvement)."
                 />
                 <p className="pt-3 text-xs text-slate-500">
                   Estimate only. Use it as planning guidance before running the live test.
