@@ -36,6 +36,15 @@ const DEFAULT_VALUES: FormValues = {
   variantTraffic: "50",
 };
 
+const FORM_VALUE_KEYS: (keyof FormValues)[] = [
+  "baselineRate",
+  "minDetectableUplift",
+  "significance",
+  "power",
+  "dailyVisitors",
+  "variantTraffic",
+];
+
 function inverseNormalCdf(probability: number): number {
   if (probability <= 0 || probability >= 1) {
     throw new Error("Probability must be between 0 and 1.");
@@ -101,6 +110,47 @@ function formatRate(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function parseValues(values: FormValues): ParsedValues {
+  return {
+    baselineRate: Number(values.baselineRate) / 100,
+    uplift: Number(values.minDetectableUplift) / 100,
+    significance: Number(values.significance) / 100,
+    power: Number(values.power) / 100,
+    dailyVisitors: Number(values.dailyVisitors),
+    variantTraffic: Number(values.variantTraffic) / 100,
+  };
+}
+
+function valuesFromSearchParams(searchParams: { get: (key: string) => string | null }): FormValues {
+  const initialValues: FormValues = { ...DEFAULT_VALUES };
+
+  for (const key of FORM_VALUE_KEYS) {
+    const param = searchParams.get(key);
+    if (param && param.trim() !== "") {
+      initialValues[key] = param;
+    }
+  }
+
+  return initialValues;
+}
+
+function valuesToQueryString(values: FormValues): string {
+  const params = new URLSearchParams();
+  for (const key of FORM_VALUE_KEYS) {
+    params.set(key, values[key]);
+  }
+  return params.toString();
+}
+
+function readInitialValuesFromLocation(): FormValues {
+  if (typeof window === "undefined") {
+    return DEFAULT_VALUES;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return valuesFromSearchParams(params);
+}
+
 function calculateResult(parsed: ParsedValues): Result {
   const p1 = parsed.baselineRate;
   const p2 = p1 * (1 + parsed.uplift);
@@ -136,7 +186,7 @@ function calculateResult(parsed: ParsedValues): Result {
 }
 
 export default function Home() {
-  const [values, setValues] = useState<FormValues>(DEFAULT_VALUES);
+  const [values, setValues] = useState<FormValues>(() => readInitialValuesFromLocation());
   const [errors, setErrors] = useState<Record<keyof FormValues, string>>({
     baselineRate: "",
     minDetectableUplift: "",
@@ -146,15 +196,9 @@ export default function Home() {
     variantTraffic: "",
   });
   const [globalError, setGlobalError] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
   const [result, setResult] = useState<Result | null>(() =>
-    calculateResult({
-      baselineRate: Number(DEFAULT_VALUES.baselineRate) / 100,
-      uplift: Number(DEFAULT_VALUES.minDetectableUplift) / 100,
-      significance: Number(DEFAULT_VALUES.significance) / 100,
-      power: Number(DEFAULT_VALUES.power) / 100,
-      dailyVisitors: Number(DEFAULT_VALUES.dailyVisitors),
-      variantTraffic: Number(DEFAULT_VALUES.variantTraffic) / 100,
-    }),
+    calculateResult(parseValues(readInitialValuesFromLocation())),
   );
 
   const hasErrors = useMemo(() => {
@@ -244,9 +288,24 @@ export default function Home() {
   function updateValue<K extends keyof FormValues>(key: K, value: string) {
     const nextValues = { ...values, [key]: value };
     setValues(nextValues);
+    setShareStatus("");
 
     if (result || hasErrors) {
       runCalculation(nextValues);
+    }
+  }
+
+  async function handleShareLink() {
+    const query = valuesToQueryString(values);
+    const pathWithQuery = `${window.location.pathname}?${query}`;
+    window.history.replaceState(null, "", pathWithQuery);
+
+    try {
+      const fullUrl = `${window.location.origin}${pathWithQuery}`;
+      await navigator.clipboard.writeText(fullUrl);
+      setShareStatus("Share link copied.");
+    } catch {
+      setShareStatus("Share link added to URL bar.");
     }
   }
 
@@ -327,6 +386,16 @@ export default function Home() {
             >
               Calculate Sample Size & Duration
             </button>
+
+            <button
+              type="button"
+              onClick={handleShareLink}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Share URL
+            </button>
+
+            {shareStatus ? <p className="text-xs text-slate-600">{shareStatus}</p> : null}
           </form>
 
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
