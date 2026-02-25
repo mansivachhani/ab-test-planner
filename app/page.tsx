@@ -309,6 +309,14 @@ export default function Home() {
     }
   }
 
+  function handleResetDefaults() {
+    const resetValues = { ...DEFAULT_VALUES };
+    setValues(resetValues);
+    setShareStatus("");
+    runCalculation(resetValues);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900">
       <main className="mx-auto max-w-5xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-10">
@@ -393,6 +401,14 @@ export default function Home() {
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
             >
               Share URL
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResetDefaults}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Reset to Defaults
             </button>
 
             {shareStatus ? <p className="text-xs text-slate-600">{shareStatus}</p> : null}
