@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type FormValues = {
   baselineRate: string;
@@ -69,6 +69,8 @@ const DEFAULT_TOGGLES: FeatureToggle[] = [
     description: "Tests a new homepage banner for high-value campaign traffic.",
   },
 ];
+
+const TOGGLES_STORAGE_KEY = "ab-test-planner-feature-toggles";
 
 function inverseNormalCdf(probability: number): number {
   if (probability <= 0 || probability >= 1) {
@@ -176,6 +178,37 @@ function readInitialValuesFromLocation(): FormValues {
   return valuesFromSearchParams(params);
 }
 
+function readTogglesFromStorage(): FeatureToggle[] {
+  if (typeof window === "undefined") {
+    return DEFAULT_TOGGLES;
+  }
+
+  const raw = window.localStorage.getItem(TOGGLES_STORAGE_KEY);
+  if (!raw) {
+    return DEFAULT_TOGGLES;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_TOGGLES;
+    }
+
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        id: String(item.id ?? ""),
+        name: String(item.name ?? ""),
+        enabled: Boolean(item.enabled),
+        rollout: Math.max(0, Math.min(100, Number(item.rollout) || 0)),
+        description: String(item.description ?? ""),
+      }))
+      .filter((item) => item.id && item.name);
+  } catch {
+    return DEFAULT_TOGGLES;
+  }
+}
+
 function calculateResult(parsed: ParsedValues): Result {
   const p1 = parsed.baselineRate;
   const p2 = p1 * (1 + parsed.uplift);
@@ -222,7 +255,7 @@ export default function Home() {
   });
   const [globalError, setGlobalError] = useState("");
   const [shareStatus, setShareStatus] = useState("");
-  const [toggles, setToggles] = useState<FeatureToggle[]>(DEFAULT_TOGGLES);
+  const [toggles, setToggles] = useState<FeatureToggle[]>(() => readTogglesFromStorage());
   const [newToggleName, setNewToggleName] = useState("");
   const [newToggleDescription, setNewToggleDescription] = useState("");
   const [toggleError, setToggleError] = useState("");
@@ -233,6 +266,14 @@ export default function Home() {
   const hasErrors = useMemo(() => {
     return Object.values(errors).some(Boolean) || Boolean(globalError);
   }, [errors, globalError]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(TOGGLES_STORAGE_KEY, JSON.stringify(toggles));
+  }, [toggles]);
 
   function validate(nextValues: FormValues) {
     const nextErrors: Record<keyof FormValues, string> = {
