@@ -27,6 +27,14 @@ type ParsedValues = {
   variantTraffic: number;
 };
 
+type FeatureToggle = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  rollout: number;
+  description: string;
+};
+
 const DEFAULT_VALUES: FormValues = {
   baselineRate: "8",
   minDetectableUplift: "10",
@@ -43,6 +51,23 @@ const FORM_VALUE_KEYS: (keyof FormValues)[] = [
   "power",
   "dailyVisitors",
   "variantTraffic",
+];
+
+const DEFAULT_TOGGLES: FeatureToggle[] = [
+  {
+    id: "quick-withdrawal",
+    name: "Quick Withdrawal CTA",
+    enabled: true,
+    rollout: 100,
+    description: "Shows a faster withdrawal call-to-action on cashier screens.",
+  },
+  {
+    id: "new-lobby-banner",
+    name: "New Lobby Promo Banner",
+    enabled: false,
+    rollout: 20,
+    description: "Tests a new homepage banner for high-value campaign traffic.",
+  },
 ];
 
 function inverseNormalCdf(probability: number): number {
@@ -197,6 +222,10 @@ export default function Home() {
   });
   const [globalError, setGlobalError] = useState("");
   const [shareStatus, setShareStatus] = useState("");
+  const [toggles, setToggles] = useState<FeatureToggle[]>(DEFAULT_TOGGLES);
+  const [newToggleName, setNewToggleName] = useState("");
+  const [newToggleDescription, setNewToggleDescription] = useState("");
+  const [toggleError, setToggleError] = useState("");
   const [result, setResult] = useState<Result | null>(() =>
     calculateResult(parseValues(readInitialValuesFromLocation())),
   );
@@ -315,6 +344,37 @@ export default function Home() {
     setShareStatus("");
     runCalculation(resetValues);
     window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  function addToggle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newToggleName.trim();
+    if (!name) {
+      setToggleError("Toggle name is required.");
+      return;
+    }
+
+    setToggles((current) => [
+      {
+        id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
+        name,
+        enabled: false,
+        rollout: 0,
+        description: newToggleDescription.trim(),
+      },
+      ...current,
+    ]);
+    setNewToggleName("");
+    setNewToggleDescription("");
+    setToggleError("");
+  }
+
+  function updateToggle<K extends keyof FeatureToggle>(id: string, key: K, value: FeatureToggle[K]) {
+    setToggles((current) => current.map((toggle) => (toggle.id === id ? { ...toggle, [key]: value } : toggle)));
+  }
+
+  function removeToggle(id: string) {
+    setToggles((current) => current.filter((toggle) => toggle.id !== id));
   }
 
   return (
@@ -452,6 +512,92 @@ export default function Home() {
             )}
           </section>
         </div>
+
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+          <h2 className="text-xl font-semibold">Feature Toggle Management</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Track launch flags, quickly adjust rollout percentage, and control whether each feature is live.
+          </p>
+
+          <form className="mt-5 grid gap-3 md:grid-cols-3" onSubmit={addToggle}>
+            <input
+              value={newToggleName}
+              onChange={(event) => {
+                setNewToggleName(event.target.value);
+                if (toggleError) {
+                  setToggleError("");
+                }
+              }}
+              placeholder="Toggle name"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500"
+            />
+            <input
+              value={newToggleDescription}
+              onChange={(event) => setNewToggleDescription(event.target.value)}
+              placeholder="Short description (optional)"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 md:col-span-2"
+            />
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 md:col-span-3 md:w-fit"
+            >
+              Add Toggle
+            </button>
+          </form>
+          {toggleError ? <p className="mt-2 text-xs text-rose-700">{toggleError}</p> : null}
+
+          <div className="mt-6 space-y-3">
+            {toggles.map((toggle) => (
+              <div key={toggle.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{toggle.name}</p>
+                    {toggle.description ? (
+                      <p className="mt-1 text-xs text-slate-600">{toggle.description}</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">No description</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeToggle(toggle.id)}
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                    <span>Status</span>
+                    <input
+                      type="checkbox"
+                      checked={toggle.enabled}
+                      onChange={(event) => updateToggle(toggle.id, "enabled", event.target.checked)}
+                      className="h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                    <span>Rollout (%)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={toggle.rollout}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        const nextRollout = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+                        updateToggle(toggle.id, "rollout", nextRollout);
+                      }}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500"
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );
