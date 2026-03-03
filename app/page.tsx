@@ -35,6 +35,17 @@ type FeatureToggle = {
   description: string;
 };
 
+type ReadinessCheck = {
+  label: string;
+  passed: boolean;
+};
+
+type ReadinessSummary = {
+  score: number;
+  level: "Ready" | "Needs Review" | "Risky";
+  checks: ReadinessCheck[];
+};
+
 const DEFAULT_VALUES: FormValues = {
   baselineRate: "8",
   minDetectableUplift: "10",
@@ -243,6 +254,46 @@ function calculateResult(parsed: ParsedValues): Result {
   };
 }
 
+function buildReadinessSummary(values: FormValues, result: Result): ReadinessSummary {
+  const significance = Number(values.significance);
+  const power = Number(values.power);
+  const expectedUplift = Number(values.minDetectableUplift);
+  const variantTraffic = Number(values.variantTraffic);
+
+  const checks: ReadinessCheck[] = [
+    {
+      label: "Run at least 7 days to cover weekday behavior",
+      passed: result.durationDays >= 7,
+    },
+    {
+      label: "Traffic split stays near balanced (40% to 60% for B)",
+      passed: variantTraffic >= 40 && variantTraffic <= 60,
+    },
+    {
+      label: "Confidence strictness is strong (10% or lower)",
+      passed: significance <= 10,
+    },
+    {
+      label: "Detection chance is solid (80% or higher)",
+      passed: power >= 80,
+    },
+    {
+      label: "Sample size per variant is robust (1,000+)",
+      passed: result.sampleSizePerGroup >= 1000,
+    },
+    {
+      label: "Expected lift target is realistic (30% or lower)",
+      passed: expectedUplift <= 30,
+    },
+  ];
+
+  const penalty = checks.reduce((sum, check) => sum + (check.passed ? 0 : 15), 0);
+  const score = Math.max(0, Math.min(100, 100 - penalty));
+  const level = score >= 85 ? "Ready" : score >= 65 ? "Needs Review" : "Risky";
+
+  return { score, level, checks };
+}
+
 export default function Home() {
   const [values, setValues] = useState<FormValues>(() => readInitialValuesFromLocation());
   const [errors, setErrors] = useState<Record<keyof FormValues, string>>({
@@ -266,6 +317,9 @@ export default function Home() {
   const hasErrors = useMemo(() => {
     return Object.values(errors).some(Boolean) || Boolean(globalError);
   }, [errors, globalError]);
+  const readiness = useMemo(() => {
+    return result ? buildReadinessSummary(values, result) : null;
+  }, [result, values]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -546,6 +600,47 @@ export default function Home() {
                   value={formatRate(result.expectedVariantRate)}
                   tooltip="Expected B rate = current conversion rate x (1 + expected improvement)."
                 />
+                {readiness ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Launch Readiness Score</p>
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          readiness.level === "Ready"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : readiness.level === "Needs Review"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-rose-100 text-rose-700"
+                        }`}
+                      >
+                        {readiness.level}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">{readiness.score}/100</p>
+                    <div className="mt-2 h-2 rounded-full bg-slate-200">
+                      <div
+                        className={`h-2 rounded-full ${
+                          readiness.level === "Ready"
+                            ? "bg-emerald-500"
+                            : readiness.level === "Needs Review"
+                              ? "bg-amber-500"
+                              : "bg-rose-500"
+                        }`}
+                        style={{ width: `${readiness.score}%` }}
+                      />
+                    </div>
+                    <div className="mt-3 space-y-1">
+                      {readiness.checks.map((check) => (
+                        <p key={check.label} className="text-xs text-slate-600">
+                          <span className={check.passed ? "text-emerald-600" : "text-rose-600"}>
+                            {check.passed ? "PASS" : "CHECK"}
+                          </span>{" "}
+                          {check.label}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <p className="pt-3 text-xs text-slate-500">
                   Estimate only. Use it as planning guidance before running the live test.
                 </p>
