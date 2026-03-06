@@ -294,6 +294,53 @@ function buildReadinessSummary(values: FormValues, result: Result): ReadinessSum
   return { score, level, checks };
 }
 
+function buildExperimentBrief(
+  values: FormValues,
+  result: Result,
+  readiness: ReadinessSummary | null,
+  toggles: FeatureToggle[],
+): string {
+  const activeToggles = toggles.filter((toggle) => toggle.enabled);
+  const checks = readiness
+    ? readiness.checks
+        .map((check) => `- [${check.passed ? "x" : " "}] ${check.label}`)
+        .join("\n")
+    : "- No readiness checks available";
+
+  const activeToggleLines =
+    activeToggles.length > 0
+      ? activeToggles
+          .map((toggle) => `- ${toggle.name} (${toggle.rollout}% rollout)`)
+          .join("\n")
+      : "- None";
+
+  return [
+    "A/B TEST EXPERIMENT BRIEF",
+    `Generated: ${new Date().toLocaleString()}`,
+    "",
+    "Assumptions",
+    `- Current conversion rate: ${values.baselineRate}%`,
+    `- Expected improvement: ${values.minDetectableUplift}%`,
+    `- Confidence strictness: ${values.significance}%`,
+    `- Chance to detect real lift: ${values.power}%`,
+    `- Users per day: ${values.dailyVisitors}`,
+    `- Traffic to version B: ${values.variantTraffic}%`,
+    "",
+    "Estimated Results",
+    `- Sample size per variant: ${formatNumber(result.sampleSizePerGroup)} users`,
+    `- Total sample size: ${formatNumber(result.totalSampleSize)} users`,
+    `- Estimated duration: ${result.durationDays} day(s)`,
+    `- Expected conversion rate (B): ${formatRate(result.expectedVariantRate)}`,
+    "",
+    "Launch Readiness",
+    readiness ? `- Score: ${readiness.score}/100 (${readiness.level})` : "- Score: N/A",
+    checks,
+    "",
+    "Active Feature Toggles",
+    activeToggleLines,
+  ].join("\n");
+}
+
 export default function Home() {
   const [values, setValues] = useState<FormValues>(() => readInitialValuesFromLocation());
   const [errors, setErrors] = useState<Record<keyof FormValues, string>>({
@@ -306,6 +353,7 @@ export default function Home() {
   });
   const [globalError, setGlobalError] = useState("");
   const [shareStatus, setShareStatus] = useState("");
+  const [briefStatus, setBriefStatus] = useState("");
   const [toggles, setToggles] = useState<FeatureToggle[]>(() => readTogglesFromStorage());
   const [newToggleName, setNewToggleName] = useState("");
   const [newToggleDescription, setNewToggleDescription] = useState("");
@@ -413,6 +461,7 @@ export default function Home() {
     const nextValues = { ...values, [key]: value };
     setValues(nextValues);
     setShareStatus("");
+    setBriefStatus("");
 
     if (result || hasErrors) {
       runCalculation(nextValues);
@@ -437,8 +486,23 @@ export default function Home() {
     const resetValues = { ...DEFAULT_VALUES };
     setValues(resetValues);
     setShareStatus("");
+    setBriefStatus("");
     runCalculation(resetValues);
     window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  async function handleCopyBrief() {
+    if (!result) {
+      return;
+    }
+
+    const brief = buildExperimentBrief(values, result, readiness, toggles);
+    try {
+      await navigator.clipboard.writeText(brief);
+      setBriefStatus("Experiment brief copied.");
+    } catch {
+      setBriefStatus("Copy failed. Please try again.");
+    }
   }
 
   function addToggle(event: FormEvent<HTMLFormElement>) {
@@ -567,6 +631,7 @@ export default function Home() {
             </button>
 
             {shareStatus ? <p className="text-xs text-slate-600">{shareStatus}</p> : null}
+            {briefStatus ? <p className="text-xs text-slate-600">{briefStatus}</p> : null}
           </form>
 
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
@@ -644,6 +709,13 @@ export default function Home() {
                 <p className="pt-3 text-xs text-slate-500">
                   Estimate only. Use it as planning guidance before running the live test.
                 </p>
+                <button
+                  type="button"
+                  onClick={handleCopyBrief}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  Copy Experiment Brief
+                </button>
               </div>
             )}
           </section>
