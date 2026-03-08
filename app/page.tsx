@@ -35,6 +35,13 @@ type FeatureToggle = {
   description: string;
 };
 
+type SavedScenario = {
+  id: string;
+  name: string;
+  values: FormValues;
+  createdAt: string;
+};
+
 type ReadinessCheck = {
   label: string;
   passed: boolean;
@@ -82,6 +89,7 @@ const DEFAULT_TOGGLES: FeatureToggle[] = [
 ];
 
 const TOGGLES_STORAGE_KEY = "ab-test-planner-feature-toggles";
+const SCENARIOS_STORAGE_KEY = "ab-test-planner-saved-scenarios";
 
 function inverseNormalCdf(probability: number): number {
   if (probability <= 0 || probability >= 1) {
@@ -220,6 +228,45 @@ function readTogglesFromStorage(): FeatureToggle[] {
   }
 }
 
+function readScenariosFromStorage(): SavedScenario[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(SCENARIOS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        id: String(item.id ?? ""),
+        name: String(item.name ?? ""),
+        values: {
+          baselineRate: String(item.values?.baselineRate ?? DEFAULT_VALUES.baselineRate),
+          minDetectableUplift: String(
+            item.values?.minDetectableUplift ?? DEFAULT_VALUES.minDetectableUplift,
+          ),
+          significance: String(item.values?.significance ?? DEFAULT_VALUES.significance),
+          power: String(item.values?.power ?? DEFAULT_VALUES.power),
+          dailyVisitors: String(item.values?.dailyVisitors ?? DEFAULT_VALUES.dailyVisitors),
+          variantTraffic: String(item.values?.variantTraffic ?? DEFAULT_VALUES.variantTraffic),
+        },
+        createdAt: String(item.createdAt ?? new Date().toISOString()),
+      }))
+      .filter((item) => item.id && item.name);
+  } catch {
+    return [];
+  }
+}
+
 function calculateResult(parsed: ParsedValues): Result {
   const p1 = parsed.baselineRate;
   const p2 = p1 * (1 + parsed.uplift);
@@ -355,6 +402,9 @@ export default function Home() {
   const [shareStatus, setShareStatus] = useState("");
   const [briefStatus, setBriefStatus] = useState("");
   const [toggles, setToggles] = useState<FeatureToggle[]>(() => readTogglesFromStorage());
+  const [scenarios, setScenarios] = useState<SavedScenario[]>(() => readScenariosFromStorage());
+  const [scenarioName, setScenarioName] = useState("");
+  const [scenarioStatus, setScenarioStatus] = useState("");
   const [newToggleName, setNewToggleName] = useState("");
   const [newToggleDescription, setNewToggleDescription] = useState("");
   const [toggleError, setToggleError] = useState("");
@@ -376,6 +426,14 @@ export default function Home() {
 
     window.localStorage.setItem(TOGGLES_STORAGE_KEY, JSON.stringify(toggles));
   }, [toggles]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(SCENARIOS_STORAGE_KEY, JSON.stringify(scenarios));
+  }, [scenarios]);
 
   function validate(nextValues: FormValues) {
     const nextErrors: Record<keyof FormValues, string> = {
@@ -487,6 +545,7 @@ export default function Home() {
     setValues(resetValues);
     setShareStatus("");
     setBriefStatus("");
+    setScenarioStatus("");
     runCalculation(resetValues);
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -534,6 +593,36 @@ export default function Home() {
 
   function removeToggle(id: string) {
     setToggles((current) => current.filter((toggle) => toggle.id !== id));
+  }
+
+  function saveScenario() {
+    const name = scenarioName.trim();
+    if (!name) {
+      setScenarioStatus("Scenario name is required.");
+      return;
+    }
+
+    const item: SavedScenario = {
+      id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
+      name,
+      values: { ...values },
+      createdAt: new Date().toISOString(),
+    };
+
+    setScenarios((current) => [item, ...current].slice(0, 12));
+    setScenarioName("");
+    setScenarioStatus("Scenario saved.");
+  }
+
+  function loadScenario(scenario: SavedScenario) {
+    setValues(scenario.values);
+    runCalculation(scenario.values);
+    setScenarioStatus(`Loaded "${scenario.name}".`);
+  }
+
+  function deleteScenario(id: string) {
+    setScenarios((current) => current.filter((scenario) => scenario.id !== id));
+    setScenarioStatus("Scenario removed.");
   }
 
   return (
@@ -630,8 +719,33 @@ export default function Home() {
               Reset to Defaults
             </button>
 
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Saved Scenarios</p>
+              <div className="flex gap-2">
+                <input
+                  value={scenarioName}
+                  onChange={(event) => {
+                    setScenarioName(event.target.value);
+                    if (scenarioStatus) {
+                      setScenarioStatus("");
+                    }
+                  }}
+                  placeholder="Scenario name"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500"
+                />
+                <button
+                  type="button"
+                  onClick={saveScenario}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+
             {shareStatus ? <p className="text-xs text-slate-600">{shareStatus}</p> : null}
             {briefStatus ? <p className="text-xs text-slate-600">{briefStatus}</p> : null}
+            {scenarioStatus ? <p className="text-xs text-slate-600">{scenarioStatus}</p> : null}
           </form>
 
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
@@ -720,6 +834,49 @@ export default function Home() {
             )}
           </section>
         </div>
+
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+          <h2 className="text-xl font-semibold">Scenario Library</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Save assumptions you use often and reload them instantly for faster planning.
+          </p>
+
+          {scenarios.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">No scenarios yet. Save one from the planner form.</p>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {scenarios.map((scenario) => (
+                <div key={scenario.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{scenario.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Baseline {scenario.values.baselineRate}% | Uplift {scenario.values.minDetectableUplift}% |
+                        Power {scenario.values.power}% | Traffic B {scenario.values.variantTraffic}%
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadScenario(scenario)}
+                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700"
+                      >
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteScenario(scenario.id)}
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
           <h2 className="text-xl font-semibold">Feature Toggle Management</h2>
