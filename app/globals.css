@@ -22,3 +22,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
 }
+
+.dark body {
+  background: radial-gradient(circle at 20% -15%, #1e293b 0%, #020617 55%);
+  color: #e2e8f0;
+}

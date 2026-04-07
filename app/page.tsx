@@ -90,6 +90,7 @@ const DEFAULT_TOGGLES: FeatureToggle[] = [
 
 const TOGGLES_STORAGE_KEY = "ab-test-planner-feature-toggles";
 const SCENARIOS_STORAGE_KEY = "ab-test-planner-saved-scenarios";
+const THEME_STORAGE_KEY = "ab-test-planner-theme";
 
 function inverseNormalCdf(probability: number): number {
   if (probability <= 0 || probability >= 1) {
@@ -267,6 +268,14 @@ function readScenariosFromStorage(): SavedScenario[] {
   }
 }
 
+function readThemeFromStorage(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark";
+}
+
 function calculateResult(parsed: ParsedValues): Result {
   const p1 = parsed.baselineRate;
   const p2 = p1 * (1 + parsed.uplift);
@@ -389,6 +398,7 @@ function buildExperimentBrief(
 }
 
 export default function Home() {
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => readThemeFromStorage());
   const [values, setValues] = useState<FormValues>(() => readInitialValuesFromLocation());
   const [errors, setErrors] = useState<Record<keyof FormValues, string>>({
     baselineRate: "",
@@ -434,6 +444,15 @@ export default function Home() {
 
     window.localStorage.setItem(SCENARIOS_STORAGE_KEY, JSON.stringify(scenarios));
   }, [scenarios]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    document.documentElement.classList.toggle("dark", isDarkMode);
+    window.localStorage.setItem(THEME_STORAGE_KEY, isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
 
   function validate(nextValues: FormValues) {
     const nextErrors: Record<keyof FormValues, string> = {
@@ -626,11 +645,20 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900">
-      <main className="mx-auto max-w-5xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-10">
+    <div className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <main className="mx-auto max-w-5xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 md:p-10">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">A/B Test Planner</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">A/B Test Planner</h1>
+            <button
+              type="button"
+              onClick={() => setIsDarkMode((current) => !current)}
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            >
+              {isDarkMode ? "Switch to Light" : "Switch to Dark"}
+            </button>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
             Plan your A/B test for iGaming product changes. Enter your expected numbers and get how many users
             you need and how long the test may run.
           </p>
@@ -693,12 +721,14 @@ export default function Home() {
             />
 
             {globalError ? (
-              <p className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700">{globalError}</p>
+              <p className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                {globalError}
+              </p>
             ) : null}
 
             <button
               type="submit"
-              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
             >
               Calculate Sample Size & Duration
             </button>
@@ -706,7 +736,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleShareLink}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Share URL
             </button>
@@ -714,13 +744,15 @@ export default function Home() {
             <button
               type="button"
               onClick={handleResetDefaults}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Reset to Defaults
             </button>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Saved Scenarios</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                Saved Scenarios
+              </p>
               <div className="flex gap-2">
                 <input
                   value={scenarioName}
@@ -731,30 +763,30 @@ export default function Home() {
                     }
                   }}
                   placeholder="Scenario name"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
                 />
                 <button
                   type="button"
                   onClick={saveScenario}
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
                 >
                   Save
                 </button>
               </div>
             </div>
 
-            {shareStatus ? <p className="text-xs text-slate-600">{shareStatus}</p> : null}
-            {briefStatus ? <p className="text-xs text-slate-600">{briefStatus}</p> : null}
-            {scenarioStatus ? <p className="text-xs text-slate-600">{scenarioStatus}</p> : null}
+            {shareStatus ? <p className="text-xs text-slate-600 dark:text-slate-300">{shareStatus}</p> : null}
+            {briefStatus ? <p className="text-xs text-slate-600 dark:text-slate-300">{briefStatus}</p> : null}
+            {scenarioStatus ? <p className="text-xs text-slate-600 dark:text-slate-300">{scenarioStatus}</p> : null}
           </form>
 
-          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
             <h2 className="flex items-center gap-2 text-xl font-semibold">
               Results
               <TooltipHelp text="We estimate required users for A and B, then convert that into days using your daily traffic and split." />
             </h2>
             {!result ? (
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
                 Enter your assumptions and calculate to see required sample size and estimated run time.
               </p>
             ) : (
@@ -780,7 +812,7 @@ export default function Home() {
                   tooltip="Expected B rate = current conversion rate x (1 + expected improvement)."
                 />
                 {readiness ? (
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-xs uppercase tracking-wide text-slate-500">Launch Readiness Score</p>
                       <span
@@ -795,8 +827,8 @@ export default function Home() {
                         {readiness.level}
                       </span>
                     </div>
-                    <p className="mt-2 text-2xl font-bold text-slate-900">{readiness.score}/100</p>
-                    <div className="mt-2 h-2 rounded-full bg-slate-200">
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{readiness.score}/100</p>
+                    <div className="mt-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
                         className={`h-2 rounded-full ${
                           readiness.level === "Ready"
@@ -810,7 +842,7 @@ export default function Home() {
                     </div>
                     <div className="mt-3 space-y-1">
                       {readiness.checks.map((check) => (
-                        <p key={check.label} className="text-xs text-slate-600">
+                        <p key={check.label} className="text-xs text-slate-600 dark:text-slate-300">
                           <span className={check.passed ? "text-emerald-600" : "text-rose-600"}>
                             {check.passed ? "PASS" : "CHECK"}
                           </span>{" "}
@@ -820,13 +852,13 @@ export default function Home() {
                     </div>
                   </div>
                 ) : null}
-                <p className="pt-3 text-xs text-slate-500">
+                <p className="pt-3 text-xs text-slate-500 dark:text-slate-400">
                   Estimate only. Use it as planning guidance before running the live test.
                 </p>
                 <button
                   type="button"
                   onClick={handleCopyBrief}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
                   Copy Experiment Brief
                 </button>
@@ -835,22 +867,22 @@ export default function Home() {
           </section>
         </div>
 
-        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
           <h2 className="text-xl font-semibold">Scenario Library</h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             Save assumptions you use often and reload them instantly for faster planning.
           </p>
 
           {scenarios.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">No scenarios yet. Save one from the planner form.</p>
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No scenarios yet. Save one from the planner form.</p>
           ) : (
             <div className="mt-5 space-y-3">
               {scenarios.map((scenario) => (
-                <div key={scenario.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div key={scenario.id} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{scenario.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{scenario.name}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                         Baseline {scenario.values.baselineRate}% | Uplift {scenario.values.minDetectableUplift}% |
                         Power {scenario.values.power}% | Traffic B {scenario.values.variantTraffic}%
                       </p>
@@ -859,7 +891,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => loadScenario(scenario)}
-                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700"
+                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
                       >
                         Load
                       </button>
@@ -878,9 +910,9 @@ export default function Home() {
           )}
         </section>
 
-        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
           <h2 className="text-xl font-semibold">Feature Toggle Management</h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             Track launch flags, quickly adjust rollout percentage, and control whether each feature is live.
           </p>
 
@@ -894,33 +926,33 @@ export default function Home() {
                 }
               }}
               placeholder="Toggle name"
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
             />
             <input
               value={newToggleDescription}
               onChange={(event) => setNewToggleDescription(event.target.value)}
               placeholder="Short description (optional)"
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 md:col-span-2"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500 md:col-span-2"
             />
             <button
               type="submit"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 md:col-span-3 md:w-fit"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300 md:col-span-3 md:w-fit"
             >
               Add Toggle
             </button>
           </form>
-          {toggleError ? <p className="mt-2 text-xs text-rose-700">{toggleError}</p> : null}
+          {toggleError ? <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{toggleError}</p> : null}
 
           <div className="mt-6 space-y-3">
             {toggles.map((toggle) => (
-              <div key={toggle.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={toggle.id} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{toggle.name}</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{toggle.name}</p>
                     {toggle.description ? (
-                      <p className="mt-1 text-xs text-slate-600">{toggle.description}</p>
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{toggle.description}</p>
                     ) : (
-                      <p className="mt-1 text-xs text-slate-400">No description</p>
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">No description</p>
                     )}
                   </div>
                   <button
@@ -933,7 +965,7 @@ export default function Home() {
                 </div>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                  <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
                     <span>Status</span>
                     <input
                       type="checkbox"
@@ -943,7 +975,7 @@ export default function Home() {
                     />
                   </label>
 
-                  <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                  <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
                     <span>Rollout (%)</span>
                     <input
                       type="number"
@@ -955,7 +987,7 @@ export default function Home() {
                         const nextRollout = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
                         updateToggle(toggle.id, "rollout", nextRollout);
                       }}
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500"
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
                     />
                   </label>
                 </div>
@@ -981,7 +1013,7 @@ function InputField({ id, label, tooltip, value, error, onChange }: InputFieldPr
   return (
     <div>
       <div className="mb-1 flex items-center gap-2">
-        <label htmlFor={id} className="block text-sm font-medium text-slate-700">
+        <label htmlFor={id} className="block text-sm font-medium text-slate-700 dark:text-slate-200">
           {label}
         </label>
         <TooltipHelp text={tooltip} />
@@ -991,11 +1023,13 @@ function InputField({ id, label, tooltip, value, error, onChange }: InputFieldPr
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${
-          error ? "border-rose-500 bg-rose-50" : "border-slate-300 bg-white focus:border-slate-500"
+          error
+            ? "border-rose-500 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200"
+            : "border-slate-300 bg-white focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
         }`}
         inputMode="decimal"
       />
-      {error ? <p className="mt-1 text-xs text-rose-700">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">{error}</p> : null}
     </div>
   );
 }
@@ -1008,12 +1042,12 @@ type ResultCardProps = {
 
 function ResultCard({ label, value, tooltip }: ResultCardProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-center gap-2">
-        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
         {tooltip ? <TooltipHelp text={tooltip} /> : null}
       </div>
-      <p className="mt-1 text-lg font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{value}</p>
     </div>
   );
 }
@@ -1028,7 +1062,7 @@ function TooltipHelp({ text }: TooltipHelpProps) {
       <button
         type="button"
         aria-label="More info"
-        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 text-[10px] font-bold text-slate-600"
+        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-400 text-[10px] font-bold text-slate-600 dark:border-slate-500 dark:text-slate-300"
       >
         ?
       </button>
