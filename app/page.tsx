@@ -42,6 +42,11 @@ type SavedScenario = {
   createdAt: string;
 };
 
+type TrackerValues = {
+  controlUsers: string;
+  variantUsers: string;
+};
+
 type ReadinessCheck = {
   label: string;
   passed: boolean;
@@ -91,6 +96,10 @@ const DEFAULT_TOGGLES: FeatureToggle[] = [
 const TOGGLES_STORAGE_KEY = "ab-test-planner-feature-toggles";
 const SCENARIOS_STORAGE_KEY = "ab-test-planner-saved-scenarios";
 const THEME_STORAGE_KEY = "ab-test-planner-theme";
+const DEFAULT_TRACKER_VALUES: TrackerValues = {
+  controlUsers: "0",
+  variantUsers: "0",
+};
 
 function inverseNormalCdf(probability: number): number {
   if (probability <= 0 || probability >= 1) {
@@ -415,6 +424,8 @@ export default function Home() {
   const [scenarios, setScenarios] = useState<SavedScenario[]>(() => readScenariosFromStorage());
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioStatus, setScenarioStatus] = useState("");
+  const [trackerValues, setTrackerValues] = useState<TrackerValues>(DEFAULT_TRACKER_VALUES);
+  const [trackerError, setTrackerError] = useState("");
   const [newToggleName, setNewToggleName] = useState("");
   const [newToggleDescription, setNewToggleDescription] = useState("");
   const [toggleError, setToggleError] = useState("");
@@ -428,6 +439,52 @@ export default function Home() {
   const readiness = useMemo(() => {
     return result ? buildReadinessSummary(values, result) : null;
   }, [result, values]);
+  const trackerSummary = useMemo(() => {
+    if (!result) {
+      return null;
+    }
+
+    const controlUsers = Number(trackerValues.controlUsers);
+    const variantUsers = Number(trackerValues.variantUsers);
+    if (
+      !Number.isFinite(controlUsers) ||
+      !Number.isFinite(variantUsers) ||
+      controlUsers < 0 ||
+      variantUsers < 0
+    ) {
+      return null;
+    }
+
+    const required = result.sampleSizePerGroup;
+    const controlProgress = Math.min(100, (controlUsers / required) * 100);
+    const variantProgress = Math.min(100, (variantUsers / required) * 100);
+    const controlRemaining = Math.max(0, required - controlUsers);
+    const variantRemaining = Math.max(0, required - variantUsers);
+
+    const dailyVisitors = Number(values.dailyVisitors);
+    const variantTrafficShare = Number(values.variantTraffic) / 100;
+    const controlDaily = dailyVisitors * (1 - variantTrafficShare);
+    const variantDaily = dailyVisitors * variantTrafficShare;
+
+    const controlDaysLeft = controlDaily > 0 ? controlRemaining / controlDaily : Number.POSITIVE_INFINITY;
+    const variantDaysLeft = variantDaily > 0 ? variantRemaining / variantDaily : Number.POSITIVE_INFINITY;
+    const estimatedDaysLeft = Number.isFinite(Math.max(controlDaysLeft, variantDaysLeft))
+      ? Math.ceil(Math.max(controlDaysLeft, variantDaysLeft))
+      : null;
+    const isReady = controlRemaining <= 0 && variantRemaining <= 0;
+
+    return {
+      required,
+      controlUsers,
+      variantUsers,
+      controlProgress,
+      variantProgress,
+      controlRemaining,
+      variantRemaining,
+      estimatedDaysLeft,
+      isReady,
+    };
+  }, [result, trackerValues, values.dailyVisitors, values.variantTraffic]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -565,6 +622,8 @@ export default function Home() {
     setShareStatus("");
     setBriefStatus("");
     setScenarioStatus("");
+    setTrackerValues(DEFAULT_TRACKER_VALUES);
+    setTrackerError("");
     runCalculation(resetValues);
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -642,6 +701,17 @@ export default function Home() {
   function deleteScenario(id: string) {
     setScenarios((current) => current.filter((scenario) => scenario.id !== id));
     setScenarioStatus("Scenario removed.");
+  }
+
+  function updateTrackerValue<K extends keyof TrackerValues>(key: K, value: string) {
+    const numeric = Number(value);
+    if (value.trim() !== "" && (!Number.isFinite(numeric) || numeric < 0 || !Number.isInteger(numeric))) {
+      setTrackerError("Tracker fields must be integers greater than or equal to 0.");
+    } else {
+      setTrackerError("");
+    }
+
+    setTrackerValues((current) => ({ ...current, [key]: value }));
   }
 
   return (
@@ -866,6 +936,91 @@ export default function Home() {
             )}
           </section>
         </div>
+
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
+          <h2 className="text-xl font-semibold">Live Experiment Progress Tracker</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Enter users already collected in A and B to see progress toward required sample size and expected
+            days left.
+          </p>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>Current users in A (Control)</span>
+              <input
+                type="number"
+                min={0}
+                value={trackerValues.controlUsers}
+                onChange={(event) => updateTrackerValue("controlUsers", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>Current users in B (Variant)</span>
+              <input
+                type="number"
+                min={0}
+                value={trackerValues.variantUsers}
+                onChange={(event) => updateTrackerValue("variantUsers", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+          </div>
+
+          {trackerError ? <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{trackerError}</p> : null}
+
+          {result && trackerSummary ? (
+            <div className="mt-5 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Required Per Variant
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {formatNumber(trackerSummary.required)} users
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">A (Control) Progress</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {formatNumber(trackerSummary.controlUsers)} collected |{" "}
+                  {formatNumber(trackerSummary.controlRemaining)} remaining
+                </p>
+                <div className="mt-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div
+                    className="h-2 rounded-full bg-sky-500"
+                    style={{ width: `${trackerSummary.controlProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">B (Variant) Progress</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {formatNumber(trackerSummary.variantUsers)} collected |{" "}
+                  {formatNumber(trackerSummary.variantRemaining)} remaining
+                </p>
+                <div className="mt-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div
+                    className="h-2 rounded-full bg-emerald-500"
+                    style={{ width: `${trackerSummary.variantProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Current Status</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {trackerSummary.isReady
+                    ? "Sample complete. You can analyze the experiment."
+                    : trackerSummary.estimatedDaysLeft !== null
+                      ? `Estimated ${trackerSummary.estimatedDaysLeft} day(s) left to hit both targets.`
+                      : "Unable to estimate days left with current traffic setup."}
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </section>
 
         <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
           <h2 className="text-xl font-semibold">Scenario Library</h2>
