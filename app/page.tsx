@@ -58,6 +58,13 @@ type ReadinessSummary = {
   checks: ReadinessCheck[];
 };
 
+type MdeEstimate = {
+  status: "ok" | "input_error" | "days_error" | "not_feasible";
+  message: string;
+  mdePercent?: number;
+  achievableSamplePerGroup?: number;
+};
+
 const DEFAULT_VALUES: FormValues = {
   baselineRate: "8",
   minDetectableUplift: "10",
@@ -288,18 +295,7 @@ function readThemeFromStorage(): boolean {
 function calculateResult(parsed: ParsedValues): Result {
   const p1 = parsed.baselineRate;
   const p2 = p1 * (1 + parsed.uplift);
-  const alpha = parsed.significance;
-  const zAlpha = inverseNormalCdf(1 - alpha / 2);
-  const zBeta = inverseNormalCdf(parsed.power);
-
-  const pooled = (p1 + p2) / 2;
-  const diff = Math.abs(p2 - p1);
-
-  const numerator =
-    zAlpha * Math.sqrt(2 * pooled * (1 - pooled)) +
-    zBeta * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2));
-
-  const sampleSizePerGroup = Math.ceil((numerator * numerator) / (diff * diff));
+  const sampleSizePerGroup = calculateSampleSizePerGroup(p1, p2, parsed.significance, parsed.power);
 
   const controlShare = 1 - parsed.variantTraffic;
   const variantShare = parsed.variantTraffic;
@@ -316,6 +312,95 @@ function calculateResult(parsed: ParsedValues): Result {
     totalSampleSize: sampleSizePerGroup * 2,
     durationDays,
     expectedVariantRate: p2,
+  };
+}
+
+function calculateSampleSizePerGroup(p1: number, p2: number, alpha: number, power: number): number {
+  const zAlpha = inverseNormalCdf(1 - alpha / 2);
+  const zBeta = inverseNormalCdf(power);
+  const pooled = (p1 + p2) / 2;
+  const diff = Math.abs(p2 - p1);
+
+  const numerator =
+    zAlpha * Math.sqrt(2 * pooled * (1 - pooled)) +
+    zBeta * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2));
+
+  return Math.ceil((numerator * numerator) / (diff * diff));
+}
+
+function estimateMdeForDuration(parsed: ParsedValues, maxDays: number): MdeEstimate {
+  if (!Number.isFinite(maxDays) || maxDays < 1 || !Number.isInteger(maxDays)) {
+    return {
+      status: "days_error",
+      message: "Enter a whole number of days (>= 1).",
+    };
+  }
+
+  const controlDaily = parsed.dailyVisitors * (1 - parsed.variantTraffic);
+  const variantDaily = parsed.dailyVisitors * parsed.variantTraffic;
+  const achievableSamplePerGroup = Math.floor(Math.min(controlDaily, variantDaily) * maxDays);
+
+  if (achievableSamplePerGroup < 1) {
+    return {
+      status: "not_feasible",
+      message: "Not enough traffic for this timeframe. Increase users/day or days.",
+      achievableSamplePerGroup,
+    };
+  }
+
+  const lowUplift = 0.0001;
+  const highUplift = 5;
+
+  const requiredAtHigh = calculateSampleSizePerGroup(
+    parsed.baselineRate,
+    parsed.baselineRate * (1 + highUplift),
+    parsed.significance,
+    parsed.power,
+  );
+
+  if (requiredAtHigh > achievableSamplePerGroup) {
+    return {
+      status: "not_feasible",
+      message: "Even 500% uplift is not detectable in this duration with current traffic.",
+      achievableSamplePerGroup,
+    };
+  }
+
+  const requiredAtLow = calculateSampleSizePerGroup(
+    parsed.baselineRate,
+    parsed.baselineRate * (1 + lowUplift),
+    parsed.significance,
+    parsed.power,
+  );
+
+  if (requiredAtLow <= achievableSamplePerGroup) {
+    return {
+      status: "ok",
+      message: "Very sensitive setup. Detectable uplift is below 0.01%.",
+      mdePercent: 0.01,
+      achievableSamplePerGroup,
+    };
+  }
+
+  let low = lowUplift;
+  let high = highUplift;
+
+  for (let i = 0; i < 60; i += 1) {
+    const mid = (low + high) / 2;
+    const p2 = parsed.baselineRate * (1 + mid);
+    const required = calculateSampleSizePerGroup(parsed.baselineRate, p2, parsed.significance, parsed.power);
+    if (required <= achievableSamplePerGroup) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return {
+    status: "ok",
+    message: "Minimum detectable uplift estimated for selected duration.",
+    mdePercent: Number((high * 100).toFixed(2)),
+    achievableSamplePerGroup,
   };
 }
 
@@ -424,6 +509,7 @@ export default function Home() {
   const [scenarios, setScenarios] = useState<SavedScenario[]>(() => readScenariosFromStorage());
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioStatus, setScenarioStatus] = useState("");
+  const [mdeDays, setMdeDays] = useState("14");
   const [trackerValues, setTrackerValues] = useState<TrackerValues>(DEFAULT_TRACKER_VALUES);
   const [trackerError, setTrackerError] = useState("");
   const [newToggleName, setNewToggleName] = useState("");
@@ -439,6 +525,19 @@ export default function Home() {
   const readiness = useMemo(() => {
     return result ? buildReadinessSummary(values, result) : null;
   }, [result, values]);
+  const mdeEstimate = (() => {
+    const { nextErrors, nextGlobalError, parsed } = validate(values);
+    const hasInputErrors = Object.values(nextErrors).some(Boolean) || Boolean(nextGlobalError);
+
+    if (hasInputErrors) {
+      return {
+        status: "input_error",
+        message: "Fix planner inputs to estimate detectable uplift by deadline.",
+      } as MdeEstimate;
+    }
+
+    return estimateMdeForDuration(parsed, Number(mdeDays));
+  })();
   const trackerSummary = useMemo(() => {
     if (!result) {
       return null;
@@ -1020,6 +1119,55 @@ export default function Home() {
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
+          <h2 className="text-xl font-semibold">Detectable Uplift by Deadline</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Reverse planner: pick a maximum test duration and see the minimum uplift you can realistically
+            detect with your current assumptions.
+          </p>
+
+          <div className="mt-5 max-w-sm">
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>Target duration (days)</span>
+              <input
+                type="number"
+                min={1}
+                value={mdeDays}
+                onChange={(event) => setMdeDays(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+            {mdeEstimate.status === "ok" ? (
+              <>
+                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Estimated Minimum Detectable Uplift
+                </p>
+                <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                  {mdeEstimate.mdePercent}%+
+                </p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Achievable sample per variant in {mdeDays} day(s):{" "}
+                  {formatNumber(mdeEstimate.achievableSamplePerGroup ?? 0)} users
+                </p>
+                <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{mdeEstimate.message}</p>
+              </>
+            ) : (
+              <p
+                className={`text-sm ${
+                  mdeEstimate.status === "input_error"
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-rose-700 dark:text-rose-300"
+                }`}
+              >
+                {mdeEstimate.message}
+              </p>
+            )}
+          </div>
         </section>
 
         <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
