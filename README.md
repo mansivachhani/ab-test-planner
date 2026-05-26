@@ -1,52 +1,61 @@
 # A/B Test Planner
 
-A micro project for product owners and growth teams to estimate:
+A practical A/B testing workspace for product owners and growth teams (including iGaming use cases).
 
-- Sample size required per variant
-- Total users needed for the experiment
-- Estimated test duration in days based on traffic split and daily users
-
-Built with Next.js (App Router) + Tailwind CSS and ready for free Vercel deployment.
+It helps you plan tests, monitor test progress, manage rollout toggles, and share experiment context quickly.
 
 ## Live Demo
 
 [https://ab-test-planner.vercel.app](https://ab-test-planner.vercel.app)
 
-## Features
+## What this app does
 
-- Two-proportion sample size calculator (two-sided z-test approximation)
-- Duration estimator using traffic allocation and daily eligible users
-- Input validation with clear inline error messages
-- Responsive UI for desktop and mobile
+### Core planning
 
-## Inputs
+- Sample size per variant (two-sided z-test approximation for two proportions)
+- Total sample size
+- Estimated test duration (based on daily traffic + traffic split)
+- Expected conversion rate for variant B
 
-- Baseline conversion rate (%)
-- Minimum detectable uplift (%)
-- Significance level / alpha (%)
-- Statistical power (%)
-- Daily eligible users
-- Traffic allocated to variant B (%)
+### Decision support
 
-## Validation Rules
+- Launch Readiness Score (with practical checks)
+- Detectable Uplift by Deadline (reverse planning for fixed timeline)
 
-- Baseline conversion rate: `0 < value < 100`
-- Minimum detectable uplift: `0 < value <= 500`
-- Significance: `0 < value < 50`
-- Power: `50 < value < 99.9`
-- Daily eligible users: integer `>= 1`
-- Variant B traffic: `0 < value < 100`
-- Calculated variant conversion rate must stay below `100%`
+### Execution support
 
-## How to use
+- Live Experiment Progress Tracker
+  - Enter users collected in A and B
+  - See progress bars, remaining users, and estimated days left
+- Feature Toggle Management
+  - Add, remove, enable/disable toggles
+  - Control rollout percentage
 
-1. Fill in your experiment assumptions.
-2. Click **Calculate Sample Size & Duration**.
-3. Review:
-   - required sample size per variant
-   - total sample size
-   - estimated duration
-   - expected variant conversion rate
+### Workflow support
+
+- Share URL (all planner inputs in query params)
+- Copy Experiment Brief (stakeholder-ready summary for docs/chat)
+- Saved Scenarios (save/load/delete common assumption sets)
+- Reset to Defaults
+- Dark mode toggle (default is light mode)
+
+## Persistence
+
+The app stores key state in local storage so it survives reloads and tab reopen:
+
+- Feature toggles
+- Saved scenarios
+- Theme preference (light/dark)
+
+## Input validation
+
+- Current conversion rate: `0 < value < 100`
+- Expected improvement: `0 < value <= 500`
+- Confidence strictness: `0 < value < 50`
+- Chance to detect real lift: `50 < value < 99.9`
+- Users per day: integer `>= 1`
+- Traffic to version B: `0 < value < 100`
+- Expected B conversion rate must stay below `100%`
 
 ## Run locally
 
@@ -59,13 +68,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Deploy for free on Vercel
 
-### Option 1: Vercel dashboard (recommended)
+### Option 1: Vercel Dashboard (recommended)
 
-1. Push this project to GitHub.
-2. Go to [Vercel](https://vercel.com/) and sign in.
+1. Push repository to GitHub.
+2. Sign in to [Vercel](https://vercel.com/).
 3. Click **Add New Project**.
-4. Import your GitHub repository.
-5. Keep default settings for Next.js.
+4. Import the GitHub repository.
+5. Keep default Next.js settings.
 6. Click **Deploy**.
 
 ### Option 2: Vercel CLI
@@ -73,21 +82,18 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm i -g vercel
 vercel
-```
-
-Follow the prompts, then deploy production:
-
-```bash
 vercel --prod
 ```
 
-## Tech Stack
+## Tech stack
 
-- Next.js 16
+- Next.js 16 (App Router)
 - React 19
 - Tailwind CSS 4
 - TypeScript
 
 ## Notes
 
-This calculator gives planning estimates. For business-critical tests, always pair results with domain-specific constraints (seasonality, user quality, risk tolerance, and experiment guardrails).
+This app is for planning and execution support, not a replacement for full statistical review in business-critical releases.
+
+For high-stakes tests, also account for seasonality, acquisition mix, player quality, novelty effects, and operational guardrails.
