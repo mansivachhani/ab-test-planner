@@ -47,6 +47,13 @@ type TrackerValues = {
   variantUsers: string;
 };
 
+type ObservedValues = {
+  controlUsers: string;
+  controlConversions: string;
+  variantUsers: string;
+  variantConversions: string;
+};
+
 type ReadinessCheck = {
   label: string;
   passed: boolean;
@@ -106,6 +113,13 @@ const THEME_STORAGE_KEY = "ab-test-planner-theme";
 const DEFAULT_TRACKER_VALUES: TrackerValues = {
   controlUsers: "0",
   variantUsers: "0",
+};
+
+const DEFAULT_OBSERVED_VALUES: ObservedValues = {
+  controlUsers: "1000",
+  controlConversions: "80",
+  variantUsers: "1000",
+  variantConversions: "92",
 };
 
 function inverseNormalCdf(probability: number): number {
@@ -171,6 +185,22 @@ function formatNumber(value: number): string {
 
 function formatRate(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
+}
+
+function erfApprox(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const absX = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * absX);
+  const y =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-absX * absX));
+  return sign * y;
+}
+
+function normalCdf(x: number): number {
+  return 0.5 * (1 + erfApprox(x / Math.sqrt(2)));
 }
 
 function parseValues(values: FormValues): ParsedValues {
@@ -404,6 +434,59 @@ function estimateMdeForDuration(parsed: ParsedValues, maxDays: number): MdeEstim
   };
 }
 
+function calculateObservedSignificance(values: ObservedValues, alphaPercent: number) {
+  const nA = Number(values.controlUsers);
+  const cA = Number(values.controlConversions);
+  const nB = Number(values.variantUsers);
+  const cB = Number(values.variantConversions);
+
+  if (
+    !Number.isFinite(nA) ||
+    !Number.isFinite(cA) ||
+    !Number.isFinite(nB) ||
+    !Number.isFinite(cB) ||
+    nA < 1 ||
+    nB < 1 ||
+    cA < 0 ||
+    cB < 0 ||
+    cA > nA ||
+    cB > nB ||
+    !Number.isInteger(nA) ||
+    !Number.isInteger(cA) ||
+    !Number.isInteger(nB) ||
+    !Number.isInteger(cB)
+  ) {
+    return null;
+  }
+
+  const pA = cA / nA;
+  const pB = cB / nB;
+  const absoluteDiff = pB - pA;
+  const relativeUplift = pA > 0 ? absoluteDiff / pA : 0;
+
+  const pooled = (cA + cB) / (nA + nB);
+  const sePooled = Math.sqrt(pooled * (1 - pooled) * (1 / nA + 1 / nB));
+  const z = sePooled > 0 ? absoluteDiff / sePooled : 0;
+  const pValue = 2 * (1 - normalCdf(Math.abs(z)));
+
+  const alpha = alphaPercent / 100;
+  const zCritical = inverseNormalCdf(1 - alpha / 2);
+  const seUnpooled = Math.sqrt((pA * (1 - pA)) / nA + (pB * (1 - pB)) / nB);
+  const ciLow = absoluteDiff - zCritical * seUnpooled;
+  const ciHigh = absoluteDiff + zCritical * seUnpooled;
+
+  return {
+    pA,
+    pB,
+    absoluteDiff,
+    relativeUplift,
+    pValue,
+    ciLow,
+    ciHigh,
+    isSignificant: pValue < alpha,
+  };
+}
+
 function buildReadinessSummary(values: FormValues, result: Result): ReadinessSummary {
   const significance = Number(values.significance);
   const power = Number(values.power);
@@ -512,6 +595,7 @@ export default function Home() {
   const [mdeDays, setMdeDays] = useState("14");
   const [trackerValues, setTrackerValues] = useState<TrackerValues>(DEFAULT_TRACKER_VALUES);
   const [trackerError, setTrackerError] = useState("");
+  const [observedValues, setObservedValues] = useState<ObservedValues>(DEFAULT_OBSERVED_VALUES);
   const [newToggleName, setNewToggleName] = useState("");
   const [newToggleDescription, setNewToggleDescription] = useState("");
   const [toggleError, setToggleError] = useState("");
@@ -584,6 +668,10 @@ export default function Home() {
       isReady,
     };
   }, [result, trackerValues, values.dailyVisitors, values.variantTraffic]);
+  const observedSummary = useMemo(
+    () => calculateObservedSignificance(observedValues, Number(values.significance)),
+    [observedValues, values.significance],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -811,6 +899,10 @@ export default function Home() {
     }
 
     setTrackerValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateObservedValue<K extends keyof ObservedValues>(key: K, value: string) {
+    setObservedValues((current) => ({ ...current, [key]: value }));
   }
 
   return (
@@ -1119,6 +1211,91 @@ export default function Home() {
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
+          <h2 className="text-xl font-semibold">Observed Results Significance Checker</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Enter real conversion counts from A and B to check statistical significance, p-value, and confidence
+            interval.
+          </p>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>A users</span>
+              <input
+                type="number"
+                min={1}
+                value={observedValues.controlUsers}
+                onChange={(event) => updateObservedValue("controlUsers", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>A conversions</span>
+              <input
+                type="number"
+                min={0}
+                value={observedValues.controlConversions}
+                onChange={(event) => updateObservedValue("controlConversions", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>B users</span>
+              <input
+                type="number"
+                min={1}
+                value={observedValues.variantUsers}
+                onChange={(event) => updateObservedValue("variantUsers", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+            <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:text-slate-200">
+              <span>B conversions</span>
+              <input
+                type="number"
+                min={0}
+                value={observedValues.variantConversions}
+                onChange={(event) => updateObservedValue("variantConversions", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+            {!observedSummary ? (
+              <p className="text-sm text-rose-700 dark:text-rose-300">
+                Enter valid integers where conversions are between 0 and users.
+              </p>
+            ) : (
+              <div className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                <p>
+                  A rate: <strong>{formatRate(observedSummary.pA)}</strong> | B rate:{" "}
+                  <strong>{formatRate(observedSummary.pB)}</strong>
+                </p>
+                <p>
+                  Relative uplift: <strong>{(observedSummary.relativeUplift * 100).toFixed(2)}%</strong> | Absolute
+                  lift: <strong>{(observedSummary.absoluteDiff * 100).toFixed(2)} pp</strong>
+                </p>
+                <p>
+                  P-value: <strong>{observedSummary.pValue.toFixed(4)}</strong> | 95% CI (absolute lift):{" "}
+                  <strong>
+                    {(observedSummary.ciLow * 100).toFixed(2)} pp to {(observedSummary.ciHigh * 100).toFixed(2)} pp
+                  </strong>
+                </p>
+                <p
+                  className={
+                    observedSummary.isSignificant ? "font-semibold text-emerald-700 dark:text-emerald-300" : "font-semibold text-amber-700 dark:text-amber-300"
+                  }
+                >
+                  {observedSummary.isSignificant
+                    ? `Significant at alpha ${values.significance}%.`
+                    : `Not significant at alpha ${values.significance}%.`}
+                </p>
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
